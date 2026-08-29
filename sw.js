@@ -1,4 +1,4 @@
-const CACHE = 'modicus-analista-v3';
+const CACHE = 'modicus-analista-v4';
 const ASSETS = [
   './',
   './index.html',
