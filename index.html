@@ -211,6 +211,7 @@
         <button id="addPlayer" class="green" type="button">+ Adicionar jogador</button>
         <button id="saveRoster" class="primary">Guardar plantel</button>
         <button id="repairCallup" class="ghost">Repor convocados deste jogo</button>
+        <button id="clearStartingFive" class="ghost">Limpar 5 inicial</button>
       </div>
     </div>
   </section>
@@ -917,10 +918,33 @@
 
   $('#startPause').addEventListener('click',()=>{
     const g=activeGame();if(!g||g.finished)return;
-    if(g.onCourt.length!==5){alert('Seleciona exatamente 5 titulares no separador Plantel.');switchView('players');return}
-    syncRunning(g);g.running=!g.running;g.lastTick=g.running?Date.now():null;
-    if(g.running){if(!g.starters.length)g.starters=[...g.onCourt];startCurrentPlayersIfNeeded(g);log('start_resume');startTimer()}
-    else log('pause');save();render();
+    if(!Array.isArray(g.onCourt))g.onCourt=[];
+    if(!Array.isArray(g.called))g.called=[];
+    if(!Array.isArray(g.starters))g.starters=[];
+
+    if(g.onCourt.length!==5){
+      alert(`Tens ${g.onCourt.length} jogador(es) no 5 inicial. Seleciona exatamente 5 no separador Plantel.`);
+      switchView('players');
+      renderRosterEditor();
+      return;
+    }
+
+    g.onCourt.forEach(id=>{if(!g.called.includes(id))g.called.push(id)});
+    ensureStints(g);
+    syncRunning(g);
+    g.running=!g.running;
+    g.lastTick=g.running?Date.now():null;
+
+    if(g.running){
+      if(!g.starters.length)g.starters=[...g.onCourt];
+      startCurrentPlayersIfNeeded(g);
+      log('start_resume');
+      startTimer();
+    }else{
+      log('pause');
+    }
+    save();
+    render();
   });
 
   $('#halfBtn').addEventListener('click',()=>{
@@ -977,6 +1001,8 @@
 
   function renderRosterEditor(){
     const g=activeGame(),box=$('#rosterEditor');box.innerHTML='';
+    const countInfo=$('#starterCountInfo');
+    if(countInfo)countInfo.textContent=`5 inicial: ${Array.isArray(g?.onCourt)?g.onCourt.length:0}/5`;
     db.roster.forEach(p=>{
       const called=!g||isCalled(g,p.id);
       const d=document.createElement('div');d.className='roster-row';
@@ -986,16 +1012,43 @@
         <select data-rid="${p.id}" data-field="position">
           ${['','GR','Fixo','Ala','Pivot'].map(x=>`<option ${p.position===x?'selected':''}>${x||'Posição'}</option>`).join('')}
         </select>
-        <button class="ghost starterBtn smallbtn" data-id="${p.id}" type="button" ${(!g||!called||g.finished)?'disabled':''}>${g&&g.onCourt.includes(p.id)?'Titular':'Banco'}</button>
+        <button class="${g&&g.onCourt.includes(p.id)?'green':'ghost'} starterBtn smallbtn" data-id="${p.id}" type="button" ${(!g||g.finished)?'disabled':''}>${g&&g.onCourt.includes(p.id)?'Titular':'Banco'}</button>
         <button class="red removePlayerBtn smallbtn" data-id="${p.id}" type="button">Eliminar</button>`;
       box.appendChild(d);
     });
-    $$('.starterBtn').forEach(b=>b.onclick=()=>{
-      const g=activeGame(),id=Number(b.dataset.id);if(!g||g.finished)return;
-      if(g.onCourt.includes(id))g.onCourt=g.onCourt.filter(x=>x!==id);
-      else if(g.onCourt.length<5)g.onCourt.push(id);else alert('Só podes ter 5 jogadores em campo.');
-      save();renderRosterEditor();renderLivePlayers();
-    });
+    box.onclick=(ev)=>{
+      const b=ev.target.closest('.starterBtn');
+      if(!b||!box.contains(b))return;
+      ev.preventDefault();
+      ev.stopPropagation();
+
+      const g=activeGame(),id=Number(b.dataset.id);
+      if(!g||g.finished)return;
+
+      if(!Array.isArray(g.called))g.called=[];
+      if(!g.called.includes(id))g.called.push(id);
+      if(!Array.isArray(g.onCourt))g.onCourt=[];
+
+      if(g.onCourt.includes(id)){
+        g.onCourt=g.onCourt.filter(x=>x!==id);
+      }else{
+        if(g.onCourt.length>=5){
+          alert('Já tens 5 titulares. Retira primeiro um jogador.');
+          return;
+        }
+        g.onCourt.push(id);
+      }
+
+      ensureStints(g);
+      save();
+      renderRosterEditor();
+      renderLivePlayers();
+      renderGame();
+
+      const n=g.onCourt.length;
+      const status=document.querySelector('#starterCountInfo');
+      if(status)status.textContent=`5 inicial: ${n}/5`;
+    };
     $$('.removePlayerBtn').forEach(b=>b.onclick=()=>{
       const id=Number(b.dataset.id);
       if(db.games.some(g=>g.called.includes(id))){alert('Este jogador já está associado a jogos. Para manter o histórico, não pode ser eliminado. Podes alterar o nome ou deixar de o convocar.');return}
@@ -1026,6 +1079,13 @@
     save();
     render();
     alert('Convocados repostos. Agora escolhe exatamente 5 titulares.');
+  };
+  if($('#clearStartingFive'))$('#clearStartingFive').onclick=()=>{
+    const g=activeGame();if(!g||g.finished)return;
+    g.onCourt=[];
+    g.starters=[];
+    save();
+    render();
   };
 
   function renderLivePlayers(){
