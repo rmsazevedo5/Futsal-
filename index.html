@@ -210,6 +210,7 @@
       <div class="row" style="margin-top:10px">
         <button id="addPlayer" class="green" type="button">+ Adicionar jogador</button>
         <button id="saveRoster" class="primary">Guardar plantel</button>
+        <button id="repairCallup" class="ghost">Repor convocados deste jogo</button>
       </div>
     </div>
   </section>
@@ -689,6 +690,13 @@
     let safeCalled=[...new Set(called.length?called:[...starters,...onCourt])];
     const rosterIds=new Set((db?.roster||[]).map(p=>Number(p.id)));
     safeCalled=safeCalled.filter(id=>rosterIds.has(id));
+
+    // Reparação automática de jogos antigos/incompletos:
+    // se ficaram menos de 5 convocados válidos, disponibiliza o plantel atual.
+    if(safeCalled.length<5){
+      safeCalled=[...(db?.roster||[])].map(p=>Number(p.id)).filter(Number.isFinite);
+    }
+
     const safeOnCourt=[...new Set(onCourt.filter(id=>safeCalled.includes(id)))].slice(0,5);
     const safeStarters=[...new Set(starters.filter(id=>safeCalled.includes(id)))].slice(0,5);
     const half=Number(g?.half)===2?2:1;
@@ -1006,6 +1014,18 @@
     });
     const g=activeGame();if(g&&!g.finished&&g.onCourt.length!==5){save();render();alert('Plantel guardado. Para iniciar o jogo, seleciona exatamente 5 titulares.');return}
     save();render();alert('Plantel guardado.');
+  };
+  if($('#repairCallup'))$('#repairCallup').onclick=()=>{
+    const g=activeGame();
+    if(!g||g.finished)return;
+    if(!confirm('Repor os convocados deste jogo com o plantel atual? Depois podes escolher os 5 titulares.'))return;
+    g.called=(db.roster||[]).map(p=>Number(p.id));
+    g.onCourt=[];
+    g.starters=[];
+    ensureStints(g);
+    save();
+    render();
+    alert('Convocados repostos. Agora escolhe exatamente 5 titulares.');
   };
 
   function renderLivePlayers(){
