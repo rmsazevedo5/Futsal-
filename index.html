@@ -77,7 +77,7 @@
   <div class="top">
     <div>
       <h1>Modicus Performance</h1>
-      <div class="muted">Análise · Performance · Futsal Sub-15 · <b>GAME FIX V5.3</b></div>
+      <div class="muted">Análise · Performance · Futsal Sub-15 · <b>GAME FIX V5.4</b></div>
     </div>
     <button id="newGameBtn" class="ghost">Novo jogo</button>
   </div>
@@ -922,9 +922,13 @@
     queueCloudPush();
 
     $('#newGameDialog').close();
-    render();
+
+    // Mantém este novo jogo como ativo sem passar por módulos que possam
+    // alterar a seleção.
     switchView('players');
     renderRosterEditor();
+    renderChampionship();
+    renderGame();
 
     alert('Jogo criado e aberto. Agora escolhe exatamente 5 titulares.');
     
@@ -1257,11 +1261,12 @@
       persistLocal();
       queueCloudPush();
 
-      // Abre imediatamente o jogo selecionado.
-      render();
+      // Abre EXATAMENTE o jogo clicado, sem deixar outros módulos
+      // alterarem a seleção.
       switchView('live');
       renderGame();
       renderLivePlayers();
+      renderChampionship();
       return false;
     }catch(err){
       alert('Erro ao abrir jogo: '+(err?.message||err));
@@ -1337,11 +1342,28 @@ function jumpToEvent(eventId){
   const t=Math.max(0,(g.video?.offset||0)+e.total); v.currentTime=t; v.play().catch(()=>{});
 }
 function renderVideo(){
-  const s=$('#videoGame'),cur=s?.value;if(!s)return;s.innerHTML='';db.games.forEach(g=>s.add(new Option(`J${g.round} · ${g.opponent}`,g.id)));
-  if(!db.games.length){$('#videoTimeline').innerHTML='<div class="muted">Sem jogos.</div>';return}
-  if(cur&&[...s.options].some(o=>o.value===cur))s.value=cur; else if(activeGame())s.value=activeGame().id;
-  const selected=db.games.find(g=>g.id===Number(s.value)); if(selected&&db.activeGameId!==selected.id){db.activeGameId=selected.id;persistLocal()}
-  const g=activeGame(); $('#videoOffset').value=g?.video?.offset||0; $('#videoStatus').textContent=g?.video?.path?'Vídeo guardado: '+(g.video.fileName||'jogo'):'Este jogo ainda não tem vídeo.';
+  const s=$('#videoGame');
+  if(!s)return;
+
+  s.innerHTML='';
+  db.games.forEach(g=>s.add(new Option(`J${g.round} · ${g.opponent}`,g.id)));
+
+  if(!db.games.length){
+    $('#videoTimeline').innerHTML='<div class="muted">Sem jogos.</div>';
+    return;
+  }
+
+  // O seletor de vídeo acompanha o jogo ativo.
+  // NUNCA pode alterar o jogo ativo sozinho.
+  const g=activeGame();
+  if(g && [...s.options].some(o=>Number(o.value)===Number(g.id))){
+    s.value=String(g.id);
+  }
+
+  $('#videoOffset').value=g?.video?.offset||0;
+  $('#videoStatus').textContent=g?.video?.path
+    ?'Vídeo guardado: '+(g.video.fileName||'jogo')
+    :'Este jogo ainda não tem vídeo.';
   renderVideoTimeline();
 }
 function renderVideoTimeline(){
@@ -1433,7 +1455,16 @@ function wireCloudVideo(){
   $('#uploadVideoBtn').onclick=()=>uploadGameVideo().catch(e=>$('#videoStatus').textContent=e.message);
   $('#loadVideoBtn').onclick=()=>loadGameVideo().catch(e=>$('#videoStatus').textContent=e.message);
   $('#saveVideoOffset').onclick=saveVideoOffset;
-  $('#videoGame').onchange=()=>{db.activeGameId=Number($('#videoGame').value);persistLocal();renderVideo();};
+  $('#videoGame').onchange=()=>{
+    const id=Number($('#videoGame').value);
+    if((db.games||[]).some(g=>Number(g.id)===id)){
+      db.activeGameId=id;
+      persistLocal();
+      queueCloudPush();
+      renderVideo();
+      renderGame();
+    }
+  };
   $('#videoAiBtn').onclick=()=>analyzeVideoAI().catch(e=>$('#videoAiOutput').textContent=e.message);
   $('#videoAiClear').onclick=()=>$('#videoAiOutput').textContent='Ainda sem análise de vídeo.';
   if($('#buildClipList'))$('#buildClipList').onclick=renderClipList;
@@ -1712,10 +1743,10 @@ function switchView(v){
 
   window.addEventListener('beforeunload',()=>{const g=activeGame();if(g){syncRunning(g);save()}});
   if('serviceWorker' in navigator&&location.protocol.startsWith('http')){
-    navigator.serviceWorker.register('./sw.js?build=v5-3',{scope:'./',updateViaCache:'none'}).then(reg=>reg.update()).catch(()=>{});
+    navigator.serviceWorker.register('./sw.js?build=v5-4',{scope:'./',updateViaCache:'none'}).then(reg=>reg.update()).catch(()=>{});
     navigator.serviceWorker.addEventListener('controllerchange',()=>{
-      if(!sessionStorage.getItem('mp-v5-3-reloaded')){
-        sessionStorage.setItem('mp-v5-3-reloaded','1');
+      if(!sessionStorage.getItem('mp-v5-4-reloaded')){
+        sessionStorage.setItem('mp-v5-4-reloaded','1');
         location.reload();
       }
     });
