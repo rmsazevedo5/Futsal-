@@ -70,14 +70,27 @@
     .heat{position:absolute;inset:5%;display:grid;grid-template-columns:repeat(3,1fr);grid-template-rows:repeat(3,1fr);pointer-events:none}.heatcell{display:flex;justify-content:center;align-items:center;font-weight:900;font-size:20px;border:1px solid rgba(255,255,255,.15)}
     .shotdots{position:absolute;inset:5%;pointer-events:none}.shotdot{position:absolute;width:17px;height:17px;border-radius:50%;border:2px solid white;transform:translate(-50%,-50%)}.shotdot.Golo{background:#16a34a}.shotdot.Enquadrado{background:#2563eb}.shotdot.Fora{background:#dc2626}.shotdot.Bloqueado{background:#d97706}.shotdot.Poste{background:#eab308}
     .ai-box{white-space:pre-wrap;line-height:1.5;background:var(--panel2);border-radius:12px;padding:12px}.scorebubble{display:inline-grid;place-items:center;width:54px;height:54px;border-radius:50%;background:var(--accent);color:#111827;font-size:20px;font-weight:900}
-  </style>
+  
+  .quick-panel{position:sticky;top:62px;z-index:8}
+  .quick-main{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:10px}
+  .quick-main button{min-height:64px;font-size:17px;font-weight:800}
+  .quick-secondary{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:10px}
+  .quick-secondary button{min-height:50px;font-weight:700}
+  .quick-players{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:10px}
+  .quick-player{min-height:54px;text-align:left}
+  .quick-player.selected{outline:3px solid currentColor}
+  .quick-outcomes{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:10px}
+  .quick-outcomes button{min-height:48px}
+  .quick-hint{font-size:12px;opacity:.8;margin-top:6px}
+
+</style>
 </head>
 <body>
 <div class="wrap">
   <div class="top">
     <div>
       <h1>Modicus Performance</h1>
-      <div class="muted">Análise · Performance · Futsal Sub-15 · <b>V5.7 CAMPEONATO MANUAL</b></div>
+      <div class="muted">Análise · Performance · Futsal Sub-15 · <b>V5.8 MODO JOGO RÁPIDO</b></div>
     </div>
     <button id="newGameBtn" class="ghost">Novo jogo</button>
   </div>
@@ -128,6 +141,26 @@
           <span id="convCount" class="pill"></span>
         </div>
         <div id="onCourt" class="players" style="margin-top:10px"></div>
+      </div>
+
+
+      <div class="card quick-panel">
+        <div class="section-title">
+          <strong>⚡ Modo Jogo Rápido</strong>
+          <span class="pill">1–2 toques</span>
+        </div>
+        <div class="quick-main">
+          <button id="quickGoalFor" class="green">⚽ GOLO NOSSO</button>
+          <button id="quickShotFor" class="blue">🎯 REMATE NOSSO</button>
+          <button id="quickGoalAgainst" class="red">🥅 GOLO SOFRIDO</button>
+          <button id="quickShotAgainst" class="ghost">🛡 REMATE ADV.</button>
+        </div>
+        <div class="quick-secondary">
+          <button id="quickFoulFor" class="orange">✋ Falta</button>
+          <button id="quickTurnover" class="red">↘️ Perda</button>
+          <button id="quickRecovery" class="green">↗️ Recuperação</button>
+        </div>
+        <div class="quick-hint">Nos golos/remates nossos: jogador em campo → zona → desfecho. Um golo conta automaticamente como remate.</div>
       </div>
 
       <div class="card">
@@ -626,6 +659,37 @@
     <div class="row" style="margin-top:12px">
       <button value="cancel" class="ghost">Cancelar</button>
       <button id="confirmReentry" value="default" class="green">Entrar</button>
+    </div>
+  </form>
+</dialog>
+
+
+<dialog id="quickFinishDialog">
+  <form method="dialog">
+    <h3 id="quickFinishTitle">Finalização</h3>
+    <div id="quickPlayerWrap">
+      <label>Quem finalizou?</label>
+      <div id="quickPlayerButtons" class="quick-players"></div>
+    </div>
+
+    <div id="quickZoneWrap" style="margin-top:12px">
+      <label>Zona do remate</label>
+      <div class="field"><div class="goalbox"></div><div class="arcbox"></div><div id="quickZones" class="zones"></div></div>
+    </div>
+
+    <div id="quickOutcomeWrap" style="margin-top:12px">
+      <label>Desfecho</label>
+      <div id="quickOutcomeButtons" class="quick-outcomes">
+        <button type="button" data-qout="Golo" class="green">Golo</button>
+        <button type="button" data-qout="Enquadrado" class="blue">Enquadrado</button>
+        <button type="button" data-qout="Fora" class="ghost">Fora</button>
+        <button type="button" data-qout="Bloqueado" class="ghost">Bloqueado</button>
+        <button type="button" data-qout="Poste" class="orange">Poste</button>
+      </div>
+    </div>
+
+    <div class="row" style="margin-top:14px">
+      <button value="cancel" class="ghost">Cancelar</button>
     </div>
   </form>
 </dialog>
@@ -1247,17 +1311,17 @@
   $$('[data-event]').forEach(b=>b.addEventListener('click',()=>{
     const g=activeGame();if(!g||g.finished)return;syncRunning(g);pendingEvent=b.dataset.event;
     const ourPlayer=['shot_for','goal_for','yellow_for','red_for','turnover_for','recovery_for','transition_for'].includes(pendingEvent);
-    const isShot=['shot_for','shot_against'].includes(pendingEvent);
+    const isShot=['shot_for','shot_against','goal_for','goal_against'].includes(pendingEvent);
     selectedZone=null; $('#eventZoneBlock').classList.toggle('hidden',!isShot);
     if(isShot){$$('.zone').forEach(z=>z.classList.remove('selected'));}
     $('#eventPlayerBlock').classList.toggle('hidden',!ourPlayer);
-    $('#eventDetailBlock').classList.toggle('hidden',!isShot);
+    $('#eventDetailBlock').classList.toggle('hidden',!isShot || pendingEvent==='goal_for' || pendingEvent==='goal_against');
     const sel=$('#eventPlayer');sel.innerHTML='';
     if(ourPlayer){
       g.onCourt.forEach(id=>{const o=document.createElement('option');o.value=id;o.textContent=currentName(id);sel.appendChild(o)});
       if(!sel.options.length){alert('Não há jogadores em campo.');return}
     }
-    $('#eventDetail').value='';$('#eventTitle').textContent=eventTitles[pendingEvent];$('#eventDialog').showModal();
+    $('#eventDetail').value=(pendingEvent==='goal_for'||pendingEvent==='goal_against')?'Golo':'';$('#eventTitle').textContent=eventTitles[pendingEvent];$('#eventDialog').showModal();
   }));
   $('#confirmEvent').addEventListener('click',e=>{
     e.preventDefault();
@@ -1301,9 +1365,139 @@
       return;
     }
 
-    log(pendingEvent,{playerId:pid,detail});
+    log(pendingEvent,{playerId:pid,detail,zone:selectedZone});
     $('#eventDialog').close();
   });
+
+
+  // ===== V5.8 · MODO JOGO RÁPIDO =====
+  let quickEventType=null, quickPlayerId=null, quickZone=null, quickOutcome=null;
+
+  function quickReset(){
+    quickPlayerId=null; quickZone=null; quickOutcome=null;
+    $$('#quickPlayerButtons .quick-player').forEach(b=>b.classList.remove('selected'));
+    $$('#quickZones .zone').forEach(b=>b.classList.remove('selected'));
+    $$('#quickOutcomeButtons [data-qout]').forEach(b=>b.classList.remove('selected'));
+  }
+
+  function renderQuickPlayers(g){
+    const box=$('#quickPlayerButtons'); if(!box)return;
+    box.innerHTML='';
+    (g.onCourt||[]).forEach(id=>{
+      const b=document.createElement('button');
+      b.type='button';
+      b.className='quick-player ghost';
+      b.dataset.pid=id;
+      b.innerHTML=`<b>${esc(currentName(id))}</b><br><small>${esc((player(id)||{}).position||'')}</small>`;
+      b.onclick=()=>{
+        quickPlayerId=Number(id);
+        $$('#quickPlayerButtons .quick-player').forEach(x=>x.classList.toggle('selected',Number(x.dataset.pid)===quickPlayerId));
+        quickTryCommit();
+      };
+      box.appendChild(b);
+    });
+  }
+
+  function buildQuickZones(){
+    const box=$('#quickZones'); if(!box)return;
+    box.innerHTML='';
+    for(let i=1;i<=9;i++){
+      const b=document.createElement('button');
+      b.type='button'; b.className='zone'; b.dataset.zone=i; b.innerHTML=`<b>Z${i}</b>`;
+      b.onclick=()=>{
+        quickZone=i;
+        $$('#quickZones .zone').forEach(x=>x.classList.toggle('selected',Number(x.dataset.zone)===i));
+        quickTryCommit();
+      };
+      box.appendChild(b);
+    }
+  }
+
+  function openQuickFinish(type){
+    const g=activeGame();
+    if(!g||g.finished)return;
+    syncRunning(g);
+    quickEventType=type; quickReset();
+
+    const ours=(type==='goal_for'||type==='shot_for');
+    const goal=(type==='goal_for'||type==='goal_against');
+
+    $('#quickFinishTitle').textContent=
+      type==='goal_for'?'⚽ Golo nosso':
+      type==='shot_for'?'🎯 Remate nosso':
+      type==='goal_against'?'🥅 Golo sofrido':'🛡 Remate adversário';
+
+    $('#quickPlayerWrap').classList.toggle('hidden',!ours);
+    $('#quickOutcomeWrap').classList.toggle('hidden',goal);
+
+    if(ours){
+      renderQuickPlayers(g);
+      if(!(g.onCourt||[]).length){alert('Não há jogadores em campo.');return}
+    }
+    if(goal)quickOutcome='Golo';
+
+    buildQuickZones();
+    $('#quickFinishDialog').showModal();
+  }
+
+  function quickTryCommit(){
+    const g=activeGame(); if(!g||!quickEventType)return;
+
+    const ours=(quickEventType==='goal_for'||quickEventType==='shot_for');
+    const goal=(quickEventType==='goal_for'||quickEventType==='goal_against');
+
+    if(ours && quickPlayerId==null)return;
+    if(quickZone==null)return;
+    if(!goal && !quickOutcome)return;
+
+    const finalType=(quickEventType==='shot_for' && quickOutcome==='Golo')?'goal_for':
+                    (quickEventType==='shot_against' && quickOutcome==='Golo')?'goal_against':
+                    quickEventType;
+
+    log(finalType,{
+      playerId:ours?quickPlayerId:null,
+      zone:quickZone,
+      detail:goal?'Golo':quickOutcome
+    });
+
+    $('#quickFinishDialog').close();
+    quickEventType=null;
+  }
+
+  $$('#quickOutcomeButtons [data-qout]').forEach(b=>b.onclick=()=>{
+    quickOutcome=b.dataset.qout;
+    $$('#quickOutcomeButtons [data-qout]').forEach(x=>x.classList.toggle('selected',x.dataset.qout===quickOutcome));
+    quickTryCommit();
+  });
+
+  if($('#quickGoalFor'))$('#quickGoalFor').onclick=()=>openQuickFinish('goal_for');
+  if($('#quickShotFor'))$('#quickShotFor').onclick=()=>openQuickFinish('shot_for');
+  if($('#quickGoalAgainst'))$('#quickGoalAgainst').onclick=()=>openQuickFinish('goal_against');
+  if($('#quickShotAgainst'))$('#quickShotAgainst').onclick=()=>openQuickFinish('shot_against');
+
+  if($('#quickFoulFor'))$('#quickFoulFor').onclick=()=>{const g=activeGame();if(!g||g.finished)return;syncRunning(g);log('foul_for')};
+  if($('#quickTurnover'))$('#quickTurnover').onclick=()=>{
+    const g=activeGame();if(!g||g.finished)return;syncRunning(g);
+    pendingEvent='turnover_for';
+    selectedZone=null;
+    $('#eventZoneBlock').classList.add('hidden');
+    $('#eventDetailBlock').classList.add('hidden');
+    $('#eventPlayerBlock').classList.remove('hidden');
+    const sel=$('#eventPlayer');sel.innerHTML='';
+    g.onCourt.forEach(id=>{const o=document.createElement('option');o.value=id;o.textContent=currentName(id);sel.appendChild(o)});
+    $('#eventTitle').textContent='Perda nossa';$('#eventDialog').showModal();
+  };
+  if($('#quickRecovery'))$('#quickRecovery').onclick=()=>{
+    const g=activeGame();if(!g||g.finished)return;syncRunning(g);
+    pendingEvent='recovery_for';
+    selectedZone=null;
+    $('#eventZoneBlock').classList.add('hidden');
+    $('#eventDetailBlock').classList.add('hidden');
+    $('#eventPlayerBlock').classList.remove('hidden');
+    const sel=$('#eventPlayer');sel.innerHTML='';
+    g.onCourt.forEach(id=>{const o=document.createElement('option');o.value=id;o.textContent=currentName(id);sel.appendChild(o)});
+    $('#eventTitle').textContent='Recuperação nossa';$('#eventDialog').showModal();
+  };
 
   function openSub(id){
     const g=activeGame();if(!g||g.finished||!g.onCourt.includes(id))return;subOut=id;
@@ -2196,10 +2390,10 @@ function switchView(v){
 
   window.addEventListener('beforeunload',()=>{const g=activeGame();if(g){syncRunning(g);save()}});
   if('serviceWorker' in navigator&&location.protocol.startsWith('http')){
-    navigator.serviceWorker.register('./sw.js?build=v5-7-manual',{scope:'./',updateViaCache:'none'}).then(reg=>reg.update()).catch(()=>{});
+    navigator.serviceWorker.register('./sw.js?build=v5-8-fast',{scope:'./',updateViaCache:'none'}).then(reg=>reg.update()).catch(()=>{});
     navigator.serviceWorker.addEventListener('controllerchange',()=>{
-      if(!sessionStorage.getItem('mp-v5-7-manual-reloaded')){
-        sessionStorage.setItem('mp-v5-7-manual-reloaded','1');
+      if(!sessionStorage.getItem('mp-v5-8-fast-reloaded')){
+        sessionStorage.setItem('mp-v5-8-fast-reloaded','1');
         location.reload();
       }
     });
