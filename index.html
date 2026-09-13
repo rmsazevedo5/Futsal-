@@ -83,6 +83,13 @@
   .quick-outcomes button{min-height:48px}
   .quick-hint{font-size:12px;opacity:.8;margin-top:6px}
 
+
+  .quick-sub-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:10px}
+  .quick-sub-btn{min-height:58px;text-align:left}
+  .quick-sub-btn.selected{outline:3px solid currentColor}
+  .quick-sub-section{margin-top:12px}
+  .quick-sub-badge{font-size:11px;font-weight:800;opacity:.85}
+
 </style>
 </head>
 <body>
@@ -90,7 +97,7 @@
   <div class="top">
     <div>
       <h1>Modicus Performance</h1>
-      <div class="muted">Análise · Performance · Futsal Sub-15 · <b>V5.9 TREINO VS CAMPEONATO</b></div>
+      <div class="muted">Análise · Performance · Futsal Sub-15 · <b>V6.0 SUBSTITUIÇÃO RÁPIDA</b></div>
     </div>
     <button id="newGameBtn" class="ghost">Novo jogo</button>
   </div>
@@ -156,11 +163,12 @@
           <button id="quickShotAgainst" class="ghost">🛡 REMATE ADV.</button>
         </div>
         <div class="quick-secondary">
+          <button id="quickSub" class="primary">🔄 Substituição</button>
           <button id="quickFoulFor" class="orange">✋ Falta</button>
           <button id="quickTurnover" class="red">↘️ Perda</button>
           <button id="quickRecovery" class="green">↗️ Recuperação</button>
         </div>
-        <div class="quick-hint">Nos golos/remates nossos: jogador em campo → zona → desfecho. Um golo conta automaticamente como remate.</div>
+        <div class="quick-hint">Registo rápido: golos/remates, perdas/recuperações e substituições com botões grandes. Um golo conta automaticamente como remate.</div>
       </div>
 
       <div class="card">
@@ -738,15 +746,31 @@
   </form>
 </dialog>
 
+
 <dialog id="subDialog">
   <form method="dialog">
-    <h3>Substituição</h3>
-    <div class="muted" id="subOutText"></div>
-    <label>Entra</label>
-    <select id="subIn"></select>
+    <h3>🔄 Substituição rápida</h3>
+    <div id="subStepHint" class="muted">1. Toca no jogador que sai.</div>
+
+    <div class="quick-sub-section">
+      <label>Em campo</label>
+      <div id="subOutButtons" class="quick-sub-grid"></div>
+    </div>
+
+    <div id="subBenchSection" class="quick-sub-section hidden">
+      <label id="subBenchLabel">Banco</label>
+      <div id="subRecommendedWrap" class="hidden">
+        <div class="muted" style="margin:6px 0"><b>Sugestões por posição</b></div>
+        <div id="subRecommendedButtons" class="quick-sub-grid"></div>
+      </div>
+      <div id="subOtherWrap" class="hidden">
+        <div class="muted" style="margin:8px 0 6px"><b>Restantes disponíveis</b></div>
+        <div id="subOtherButtons" class="quick-sub-grid"></div>
+      </div>
+    </div>
+
     <div class="row" style="margin-top:14px">
       <button value="cancel" class="ghost">Cancelar</button>
-      <button id="confirmSub" value="default" class="primary">Confirmar</button>
     </div>
   </form>
 </dialog>
@@ -1520,19 +1544,115 @@
   if($('#quickTurnover'))$('#quickTurnover').onclick=()=>openQuickPlayerEvent('turnover_for');
   if($('#quickRecovery'))$('#quickRecovery').onclick=()=>openQuickPlayerEvent('recovery_for');
 
-  function openSub(id){
-    const g=activeGame();if(!g||g.finished||!g.onCourt.includes(id))return;subOut=id;
-    $('#subOutText').textContent='Sai: '+currentName(id)+' · '+fmt(g.elapsed);
-    const sel=$('#subIn');sel.innerHTML='';
-    g.called.filter(pid=>!g.onCourt.includes(pid)&&!(g.expelled||[]).includes(Number(pid))).forEach(pid=>{const o=document.createElement('option');o.value=pid;o.textContent=currentName(pid);sel.appendChild(o)});
-    if(!sel.options.length){alert('Não há jogadores convocados disponíveis no banco.');return}$('#subDialog').showModal();
+
+  function positionTokens(pos){
+    return String(pos||'')
+      .toLowerCase()
+      .replace(/guarda[- ]?redes|goleiro/g,'gr')
+      .split(/[\/,;|+]+/)
+      .map(x=>x.trim())
+      .filter(Boolean);
   }
-  $('#confirmSub').addEventListener('click',e=>{
-    e.preventDefault();const g=activeGame();syncRunning(g);const inId=Number($('#subIn').value),outId=subOut;
-    const arr=g.stints[outId]||[],open=arr[arr.length-1];if(open&&open.outTotal==null)open.outTotal=totalSec(g);
-    if(!g.stints[inId])g.stints[inId]=[];g.stints[inId].push({inTotal:totalSec(g),outTotal:null});
-    g.onCourt=g.onCourt.map(x=>x===outId?inId:x);log('sub',{outId,inId});$('#subDialog').close();
-  });
+
+  function positionMatch(outId,inId){
+    const a=positionTokens((player(outId)||{}).position);
+    const b=positionTokens((player(inId)||{}).position);
+    if(!a.length||!b.length)return false;
+    return a.some(x=>b.includes(x));
+  }
+
+  function doFastSub(outId,inId){
+    const g=activeGame();if(!g||g.finished)return;
+    syncRunning(g);
+
+    outId=Number(outId);inId=Number(inId);
+    if(!g.onCourt.includes(outId))return;
+    if(g.onCourt.includes(inId))return;
+    if((g.expelled||[]).includes(inId)){alert('Esse jogador está expulso e não pode voltar a entrar.');return}
+
+    const arr=g.stints[outId]||[],open=arr[arr.length-1];
+    if(open&&open.outTotal==null)open.outTotal=totalSec(g);
+
+    if(!g.stints[inId])g.stints[inId]=[];
+    g.stints[inId].push({inTotal:totalSec(g),outTotal:null});
+
+    g.onCourt=g.onCourt.map(x=>Number(x)===outId?inId:Number(x));
+    log('sub',{outId,inId});
+    $('#subDialog').close();
+  }
+
+  function subPlayerButton(id,mode,outId=null){
+    const p=player(id)||{};
+    const b=document.createElement('button');
+    b.type='button';
+    b.className='quick-sub-btn ghost';
+    const mins=activeGame()?fmt(minutesFor(activeGame(),id)):'';
+    const match=outId!=null && positionMatch(outId,id);
+    b.innerHTML=`<b>${esc(currentName(id))}</b><br><small>${esc(p.position||'Sem posição')} · ${mins}${match?' · ★ compatível':''}</small>`;
+    if(mode==='out'){
+      b.onclick=()=>selectSubOut(Number(id));
+    }else{
+      b.onclick=()=>doFastSub(Number(outId),Number(id));
+    }
+    return b;
+  }
+
+  function openQuickSub(preselectedOut=null){
+    const g=activeGame();if(!g||g.finished)return;
+    syncRunning(g);
+
+    const outBox=$('#subOutButtons');
+    outBox.innerHTML='';
+    (g.onCourt||[]).forEach(id=>outBox.appendChild(subPlayerButton(id,'out')));
+
+    $('#subBenchSection').classList.add('hidden');
+    $('#subRecommendedWrap').classList.add('hidden');
+    $('#subOtherWrap').classList.add('hidden');
+    $('#subStepHint').textContent='1. Toca no jogador que sai.';
+    $('#subDialog').showModal();
+
+    if(preselectedOut!=null)selectSubOut(Number(preselectedOut));
+  }
+
+  function selectSubOut(outId){
+    const g=activeGame();if(!g||!g.onCourt.includes(Number(outId)))return;
+    subOut=Number(outId);
+
+    $$('#subOutButtons .quick-sub-btn').forEach(b=>{
+      const name=b.querySelector('b')?.textContent||'';
+      b.classList.toggle('selected',name===currentName(subOut));
+    });
+
+    const bench=(g.called||[])
+      .map(Number)
+      .filter(pid=>!g.onCourt.includes(pid) && !(g.expelled||[]).includes(pid));
+
+    if(!bench.length){alert('Não há jogadores convocados disponíveis no banco.');return}
+
+    const recommended=bench.filter(pid=>positionMatch(subOut,pid));
+    const other=bench.filter(pid=>!recommended.includes(pid));
+
+    const recBox=$('#subRecommendedButtons'),otherBox=$('#subOtherButtons');
+    recBox.innerHTML='';otherBox.innerHTML='';
+
+    recommended.forEach(pid=>recBox.appendChild(subPlayerButton(pid,'in',subOut)));
+    other.forEach(pid=>otherBox.appendChild(subPlayerButton(pid,'in',subOut)));
+
+    $('#subRecommendedWrap').classList.toggle('hidden',recommended.length===0);
+    $('#subOtherWrap').classList.toggle('hidden',other.length===0);
+    $('#subBenchSection').classList.remove('hidden');
+
+    const outP=player(subOut)||{};
+    $('#subStepHint').textContent=`2. Sai ${currentName(subOut)} (${outP.position||'sem posição'}). Toca em quem entra.`;
+    $('#subBenchLabel').textContent='Banco · toque no jogador que entra';
+  }
+
+  function openSub(id){
+    openQuickSub(id);
+  }
+
+  if($('#quickSub'))$('#quickSub').onclick=()=>openQuickSub();
+
 
   $('#undoBtn').onclick=()=>{const g=activeGame();if(!g||!g.events.length||g.finished)return;g.events.pop();save();render()};
 
@@ -1610,9 +1730,7 @@
       d.innerHTML=`
         <input data-rid="${p.id}" data-field="name" value="${esc(p.name)}" placeholder="Nome">
         <input data-rid="${p.id}" data-field="number" value="${esc(p.number??'')}" inputmode="numeric" placeholder="Nº">
-        <select data-rid="${p.id}" data-field="position">
-          ${['','GR','Fixo','Ala','Pivot'].map(x=>`<option ${p.position===x?'selected':''}>${x||'Posição'}</option>`).join('')}
-        </select>
+        <input data-rid="${p.id}" data-field="position" value="${esc(p.position||'')}" placeholder="Posições: Fixo / Ala">
         <button class="${g&&g.onCourt.includes(Number(p.id))?'green':'ghost'} starterBtn smallbtn" data-id="${p.id}" type="button" onclick="return window.toggleStarterDirect(${p.id})" ${(!g||(g.expelled||[]).includes(Number(p.id)))?'disabled':''}>${g&&(g.expelled||[]).includes(Number(p.id))?'Expulso':(g&&g.onCourt.includes(Number(p.id))?'Titular':'Banco')}</button>
         <button class="red removePlayerBtn smallbtn" data-id="${p.id}" type="button">Eliminar</button>`;
       box.appendChild(d);
@@ -2412,10 +2530,10 @@ function switchView(v){
 
   window.addEventListener('beforeunload',()=>{const g=activeGame();if(g){syncRunning(g);save()}});
   if('serviceWorker' in navigator&&location.protocol.startsWith('http')){
-    navigator.serviceWorker.register('./sw.js?build=v5-9-types',{scope:'./',updateViaCache:'none'}).then(reg=>reg.update()).catch(()=>{});
+    navigator.serviceWorker.register('./sw.js?build=v6-0-fastsub',{scope:'./',updateViaCache:'none'}).then(reg=>reg.update()).catch(()=>{});
     navigator.serviceWorker.addEventListener('controllerchange',()=>{
-      if(!sessionStorage.getItem('mp-v5-9-types-reloaded')){
-        sessionStorage.setItem('mp-v5-9-types-reloaded','1');
+      if(!sessionStorage.getItem('mp-v6-0-fastsub-reloaded')){
+        sessionStorage.setItem('mp-v6-0-fastsub-reloaded','1');
         location.reload();
       }
     });
