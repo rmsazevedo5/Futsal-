@@ -77,7 +77,7 @@
   <div class="top">
     <div>
       <h1>Modicus Performance</h1>
-      <div class="muted">Análise · Performance · Futsal Sub-15 · <b>V5.6 ZEROZERO</b></div>
+      <div class="muted">Análise · Performance · Futsal Sub-15 · <b>V5.7 CAMPEONATO MANUAL</b></div>
     </div>
     <button id="newGameBtn" class="ghost">Novo jogo</button>
   </div>
@@ -255,31 +255,55 @@
         <div class="stat"><span class="muted">Remates</span><b id="cShots">0-0</b></div>
       </div>
     </div>
+
     <div class="card">
       <div class="section-title">
-        <strong>Zerozero · calendário e classificação</strong>
-        <span class="pill">Sub-15 Elite</span>
+        <strong>Calendário da época</strong>
+        <span class="pill">manual · fiável</span>
       </div>
       <div class="muted" style="margin-top:6px">
-        Sincroniza calendário, resultados e classificação da competição. Os jogos do Modicus são criados como Agendados e só precisas de escolher convocados no dia do jogo.
+        Cria os jogos como Agendados. No dia do jogo escolhes convocados e 5 inicial.
       </div>
-      <label>Fonte Zerozero</label>
-      <input id="zzUrl" value="https://www.zerozero.pt/competicao/af-porto-futsal-juniores-c-divisao-elite">
+      <div class="grid" style="margin-top:10px">
+        <div><label>Jornada</label><input id="calRound" type="number" min="1"></div>
+        <div><label>Data</label><input id="calDate" type="date"></div>
+      </div>
+      <div class="grid">
+        <div><label>Hora</label><input id="calTime" type="time"></div>
+        <div><label>Casa / Fora</label>
+          <select id="calVenue"><option>Casa</option><option>Fora</option></select>
+        </div>
+      </div>
+      <label>Adversário</label>
+      <input id="calOpponent" placeholder="Nome do adversário">
       <div class="row" style="margin-top:10px">
-        <button id="zzSyncBtn" class="primary">Atualizar Zerozero</button>
+        <button id="addScheduledGame" class="primary">Adicionar jogo agendado</button>
       </div>
-      <div id="zzStatus" class="muted" style="margin-top:8px">Ainda não sincronizado.</div>
+    </div>
+
+    <div class="card">
+      <div class="section-title">
+        <strong>Resultados da jornada</strong>
+        <span class="pill">introdução rápida</span>
+      </div>
+      <label>Jornada</label>
+      <input id="roundResultsRound" type="number" min="1" value="1">
+      <div id="roundResultsEditor" style="margin-top:10px"></div>
+      <div class="row" style="margin-top:10px">
+        <button id="addRoundFixture" class="ghost">+ Adicionar jogo da jornada</button>
+        <button id="saveRoundResults" class="primary">Guardar resultados</button>
+      </div>
     </div>
 
     <div class="card">
       <strong>Classificação</strong>
       <div style="overflow:auto;margin-top:8px">
         <table>
-          <thead><tr><th>#</th><th>Equipa</th><th>P</th><th>J</th><th>V</th><th>E</th><th>D</th><th>GM</th><th>GS</th><th>DG</th></tr></thead>
-          <tbody id="zzStandings"></tbody>
+          <thead><tr><th>#</th><th>Equipa</th><th>Pts</th><th>J</th><th>V</th><th>E</th><th>D</th><th>GM</th><th>GS</th><th>DG</th></tr></thead>
+          <tbody id="manualStandings"></tbody>
         </table>
       </div>
-      <div id="zzStandingsEmpty" class="muted" style="margin-top:8px">Sem classificação disponível.</div>
+      <div id="manualStandingsEmpty" class="muted" style="margin-top:8px">Sem resultados suficientes para calcular a classificação.</div>
     </div>
 
     <div class="card">
@@ -809,7 +833,7 @@
   function normalizeDB(input){
     const src=(input && typeof input==='object')?input:{};
     const roster=(Array.isArray(src.roster)&&src.roster.length?src.roster:deep(defaultRoster)).map(normalizePlayer);
-    db={roster,games:[],activeGameId:null,competitionData:(src.competitionData&&typeof src.competitionData==='object')?src.competitionData:{fixtures:[],standings:[],source:'',updatedAt:''}};
+    db={roster,games:[],activeGameId:null,competitionData:(src.competitionData&&typeof src.competitionData==='object')?src.competitionData:{manualFixtures:[]}};
     db.games=(Array.isArray(src.games)?src.games:[]).map(normalizeGame);
     const wanted=Number(src.activeGameId);
     db.activeGameId=db.games.some(g=>g.id===wanted)?wanted:(db.games[0]?.id||null);
@@ -1540,131 +1564,167 @@
   };
 
 
-  function zzDateToIso(raw){
-    const s=String(raw||'').trim();
-    if(!s)return '';
-    if(/^\d{4}-\d{2}-\d{2}$/.test(s))return s;
-    const m=s.match(/^(\d{1,2})[\/-](\d{1,2})(?:[\/-](\d{2,4}))?$/);
-    if(!m)return '';
-    let y=m[3]?Number(m[3]):2026;
-    if(y<100)y+=2000;
-    return `${y}-${String(m[2]).padStart(2,'0')}-${String(m[1]).padStart(2,'0')}`;
+
+  function ensureCompetitionData(){
+    if(!db.competitionData||typeof db.competitionData!=='object')db.competitionData={};
+    if(!Array.isArray(db.competitionData.manualFixtures))db.competitionData.manualFixtures=[];
   }
 
-  function modicusFixture(f){
-    const h=String(f.home||'').toLowerCase(),a=String(f.away||'').toLowerCase();
-    return h.includes('modicus')||a.includes('modicus');
+  function addScheduledGame(){
+    const round=Number($('#calRound').value)||'';
+    const opponent=($('#calOpponent').value||'').trim();
+    const date=$('#calDate').value||'';
+    const time=$('#calTime').value||'';
+    const venue=$('#calVenue').value||'Casa';
+
+    if(!opponent){alert('Indica o adversário.');return}
+
+    const g={
+      id:uid(),opponent,round,date,time,venue,
+      half:1,elapsed:0,running:false,lastTick:null,finished:false,
+      called:[],starters:[],onCourt:[],expelled:[],penalties:[],
+      timeouts:{1:{for:false,against:false},2:{for:false,against:false}},
+      events:[],stints:{},createdAt:Date.now(),scheduled:true
+    };
+
+    db.games.push(g);
+    persistLocal();queueCloudPush();
+    $('#calOpponent').value='';
+    renderChampionship();
   }
 
-  function importZerozeroFixtures(fixtures){
-    let added=0,updated=0;
-    for(const f of (fixtures||[]).filter(modicusFixture)){
-      const home=String(f.home||''),away=String(f.away||'');
-      const isHome=home.toLowerCase().includes('modicus');
-      const opponent=isHome?away:home;
-      if(!opponent)continue;
-      const round=Number(f.round)||String(f.round||'').replace(/\D/g,'')||'';
-      const date=zzDateToIso(f.date);
-      const ext=String(f.key||`zz:${round}:${home}:${away}:${date}`).toLowerCase();
-
-      let g=(db.games||[]).find(x=>x.externalKey===ext);
-      if(!g){
-        // Fallback to an already manually-created same fixture.
-        g=(db.games||[]).find(x=>
-          String(x.opponent||'').toLowerCase()===opponent.toLowerCase() &&
-          String(x.round||'')===String(round) &&
-          (!date || !x.date || x.date===date)
-        );
-      }
-
-      if(g){
-        if(!g.finished){
-          g.opponent=opponent;
-          g.round=round;
-          if(date)g.date=date;
-          g.venue=isHome?'Casa':'Fora';
-          g.externalKey=ext;
-          g.externalSource='zerozero';
-          if(!(g.events||[]).length && !(g.onCourt||[]).length)g.scheduled=true;
-          if(f.homeGoals!=null && f.awayGoals!=null)g.externalResult={homeGoals:f.homeGoals,awayGoals:f.awayGoals};
-          updated++;
-        }
-      }else{
-        const ng={
-          id:uid(), opponent, round, date, venue:isHome?'Casa':'Fora',
-          half:1, elapsed:0, running:false, lastTick:null, finished:false,
-          called:[], starters:[], onCourt:[], expelled:[], penalties:[],
-          timeouts:{1:{for:false,against:false},2:{for:false,against:false}},
-          events:[], stints:{}, createdAt:Date.now(),
-          scheduled:true, externalKey:ext, externalSource:'zerozero',
-          externalResult:(f.homeGoals!=null&&f.awayGoals!=null)?{homeGoals:f.homeGoals,awayGoals:f.awayGoals}:null
-        };
-        db.games.push(ng);
-        added++;
-      }
-    }
-    return {added,updated};
+  function fixturesForRound(round){
+    ensureCompetitionData();
+    return db.competitionData.manualFixtures.filter(f=>Number(f.round)===Number(round));
   }
 
-  async function syncZerozero(){
-    try{
-      const url=($('#zzUrl')?.value||'').trim();
-      if(!url)throw new Error('Indica a página da competição no Zerozero.');
-      $('#zzStatus').textContent='A atualizar Zerozero...';
-      const {c,s}=await cloudHeaders();
-      const r=await fetch(c.url+'/functions/v1/sync-zerozero',{
-        method:'POST',
-        headers:{
-          'apikey':c.anon,
-          'Authorization':'Bearer '+s.access_token,
-          'Content-Type':'application/json'
-        },
-        body:JSON.stringify({url})
+  function addRoundFixtureRow(fixture=null){
+    const box=$('#roundResultsEditor'); if(!box)return;
+    const row=document.createElement('div');
+    row.className='match';
+    const id=fixture?.id||uid();
+    row.dataset.id=id;
+    row.innerHTML=`
+      <div style="width:100%">
+        <div class="grid">
+          <input class="rfHome" placeholder="Equipa casa" value="${esc(fixture?.home||'')}">
+          <input class="rfAway" placeholder="Equipa fora" value="${esc(fixture?.away||'')}">
+        </div>
+        <div class="grid">
+          <input class="rfHG" type="number" min="0" placeholder="Golos casa" value="${fixture?.homeGoals??''}">
+          <input class="rfAG" type="number" min="0" placeholder="Golos fora" value="${fixture?.awayGoals??''}">
+        </div>
+        <div class="row">
+          <button type="button" class="red rfDelete">Eliminar</button>
+        </div>
+      </div>`;
+    row.querySelector('.rfDelete').onclick=()=>row.remove();
+    box.appendChild(row);
+  }
+
+  function renderRoundResultsEditor(){
+    const box=$('#roundResultsEditor'); if(!box)return;
+    box.innerHTML='';
+    const round=Number($('#roundResultsRound')?.value||1);
+    const arr=fixturesForRound(round);
+    if(arr.length)arr.forEach(addRoundFixtureRow);
+    else addRoundFixtureRow();
+  }
+
+  function saveRoundResults(){
+    ensureCompetitionData();
+    const round=Number($('#roundResultsRound').value)||1;
+    db.competitionData.manualFixtures=db.competitionData.manualFixtures.filter(f=>Number(f.round)!==round);
+
+    $$('#roundResultsEditor .match').forEach(row=>{
+      const home=(row.querySelector('.rfHome')?.value||'').trim();
+      const away=(row.querySelector('.rfAway')?.value||'').trim();
+      const hg=row.querySelector('.rfHG')?.value;
+      const ag=row.querySelector('.rfAG')?.value;
+      if(!home||!away)return;
+      db.competitionData.manualFixtures.push({
+        id:Number(row.dataset.id)||uid(),
+        round,
+        home,
+        away,
+        homeGoals:hg===''?null:Number(hg),
+        awayGoals:ag===''?null:Number(ag)
       });
-      const j=await r.json();
-      if(!r.ok)throw new Error(j.error||j.message||'Não foi possível atualizar.');
+    });
 
-      if(!db.competitionData)db.competitionData={};
-      db.competitionData={
-        fixtures:Array.isArray(j.fixtures)?j.fixtures:[],
-        standings:Array.isArray(j.standings)?j.standings:[],
-        competition:j.competition||'',
-        source:url,
-        updatedAt:new Date().toISOString()
-      };
-
-      const res=importZerozeroFixtures(db.competitionData.fixtures);
-      persistLocal();queueCloudPush();
-      renderChampionship();
-      $('#zzStatus').textContent=`Atualizado · ${db.competitionData.fixtures.length} jogos lidos · ${res.added} jogos Modicus criados · ${res.updated} atualizados`;
-    }catch(e){
-      $('#zzStatus').textContent='Erro: '+(e?.message||e);
-    }
+    persistLocal();queueCloudPush();
+    renderManualStandings();
+    alert('Resultados da jornada guardados.');
   }
 
-  function renderZerozeroStandings(){
-    const tb=$('#zzStandings'),empty=$('#zzStandingsEmpty');
-    if(!tb)return;
+  function competitionResults(){
+    ensureCompetitionData();
+    const results=[];
+
+    db.competitionData.manualFixtures.forEach(f=>{
+      if(f.homeGoals!=null&&f.awayGoals!=null){
+        results.push({
+          home:f.home,away:f.away,
+          homeGoals:Number(f.homeGoals),awayGoals:Number(f.awayGoals)
+        });
+      }
+    });
+
+    (db.games||[]).filter(g=>g.finished).forEach(g=>{
+      const gf=goalsFor(g),ga=goalsAgainst(g);
+      if(g.venue==='Casa'){
+        results.push({home:'Modicus',away:g.opponent,homeGoals:gf,awayGoals:ga});
+      }else{
+        results.push({home:g.opponent,away:'Modicus',homeGoals:ga,awayGoals:gf});
+      }
+    });
+
+    return results;
+  }
+
+  function calculateStandings(){
+    const table={};
+    const ensure=team=>{
+      if(!table[team])table[team]={team,played:0,wins:0,draws:0,losses:0,gf:0,ga:0,gd:0,points:0};
+      return table[team];
+    };
+
+    competitionResults().forEach(r=>{
+      const h=ensure(r.home),a=ensure(r.away);
+      h.played++;a.played++;
+      h.gf+=r.homeGoals;h.ga+=r.awayGoals;
+      a.gf+=r.awayGoals;a.ga+=r.homeGoals;
+
+      if(r.homeGoals>r.awayGoals){h.wins++;a.losses++;h.points+=3}
+      else if(r.homeGoals<r.awayGoals){a.wins++;h.losses++;a.points+=3}
+      else{h.draws++;a.draws++;h.points++;a.points++}
+    });
+
+    return Object.values(table).map(x=>({...x,gd:x.gf-x.ga}))
+      .sort((a,b)=>b.points-a.points || b.gd-a.gd || b.gf-a.gf || a.team.localeCompare(b.team,'pt'));
+  }
+
+  function renderManualStandings(){
+    const tb=$('#manualStandings'),empty=$('#manualStandingsEmpty'); if(!tb)return;
     tb.innerHTML='';
-    const rows=db.competitionData?.standings||[];
+    const rows=calculateStandings();
     empty?.classList.toggle('hidden',rows.length>0);
-    rows.forEach(r=>{
+    rows.forEach((r,i)=>{
       const tr=document.createElement('tr');
-      const isModicus=String(r.team||'').toLowerCase().includes('modicus');
-      if(isModicus)tr.style.fontWeight='800';
-      tr.innerHTML=`<td>${esc(r.pos??'')}</td><td>${esc(r.team||'')}</td><td>${esc(r.points??'')}</td><td>${esc(r.played??'')}</td><td>${esc(r.wins??'')}</td><td>${esc(r.draws??'')}</td><td>${esc(r.losses??'')}</td><td>${esc(r.gf??'')}</td><td>${esc(r.ga??'')}</td><td>${esc(r.gd??'')}</td>`;
+      if(String(r.team).toLowerCase().includes('modicus'))tr.style.fontWeight='800';
+      tr.innerHTML=`<td>${i+1}</td><td>${esc(r.team)}</td><td>${r.points}</td><td>${r.played}</td><td>${r.wins}</td><td>${r.draws}</td><td>${r.losses}</td><td>${r.gf}</td><td>${r.ga}</td><td>${r.gd}</td>`;
       tb.appendChild(tr);
     });
-    if($('#zzStatus') && db.competitionData?.updatedAt){
-      const d=new Date(db.competitionData.updatedAt);
-      $('#zzStatus').textContent=`Última atualização: ${d.toLocaleString('pt-PT')} · ${db.competitionData.fixtures?.length||0} jogos`;
-    }
   }
 
-  if($('#zzSyncBtn'))$('#zzSyncBtn').onclick=syncZerozero;
+  if($('#addScheduledGame'))$('#addScheduledGame').onclick=addScheduledGame;
+  if($('#addRoundFixture'))$('#addRoundFixture').onclick=()=>addRoundFixtureRow();
+  if($('#saveRoundResults'))$('#saveRoundResults').onclick=saveRoundResults;
+  if($('#roundResultsRound'))$('#roundResultsRound').onchange=renderRoundResultsEditor;
 
   function renderChampionship(){
-    renderZerozeroStandings();
+    renderManualStandings();
+    renderRoundResultsEditor();
     const finished=db.games.filter(g=>g.finished);let w=0,d=0,l=0,gf=0,ga=0,sf=0,sa=0;
     finished.forEach(g=>{const a=goalsFor(g),b=goalsAgainst(g);gf+=a;ga+=b;sf+=shotFor(g);sa+=shotAgainst(g);if(a>b)w++;else if(a===b)d++;else l++});
     $('#cGames').textContent=db.games.length;$('#cRecord').textContent=`${w}-${d}-${l}`;$('#cGoals').textContent=`${gf}-${ga}`;$('#cShots').textContent=`${sf}-${sa}`;
@@ -1674,7 +1734,7 @@
       const scoreText=(g.finished||hasLocalScore)?`Modicus ${goalsFor(g)}-${goalsAgainst(g)} ${esc(g.opponent)}`:`Modicus vs ${esc(g.opponent)}`;
       const state=g.finished?'Terminado':(g.scheduled&&!(g.events||[]).length?'Agendado':'Em curso');
       div.innerHTML=`<div><b>J${esc(g.round)} · ${scoreText}</b>
-        <div class="muted">${esc(g.date||'Sem data')} · ${esc(g.venue)} · ${state}${Number(db.activeGameId)===Number(g.id)?' · ATIVO':''}${g.externalSource==='zerozero'?' · Zerozero':''}</div></div>
+        <div class="muted">${esc(g.date||'Sem data')}${g.time?' · '+esc(g.time):''} · ${esc(g.venue)} · ${state}${Number(db.activeGameId)===Number(g.id)?' · ATIVO':''}</div></div>
         <div class="row">
           <button class="ghost openMatch" data-id="${g.id}" type="button" onclick="return window.openGameDirect(${g.id})">Abrir</button>
           <button class="red deleteMatch" data-id="${g.id}">Apagar</button>
@@ -2136,10 +2196,10 @@ function switchView(v){
 
   window.addEventListener('beforeunload',()=>{const g=activeGame();if(g){syncRunning(g);save()}});
   if('serviceWorker' in navigator&&location.protocol.startsWith('http')){
-    navigator.serviceWorker.register('./sw.js?build=v5-6-zerozero',{scope:'./',updateViaCache:'none'}).then(reg=>reg.update()).catch(()=>{});
+    navigator.serviceWorker.register('./sw.js?build=v5-7-manual',{scope:'./',updateViaCache:'none'}).then(reg=>reg.update()).catch(()=>{});
     navigator.serviceWorker.addEventListener('controllerchange',()=>{
-      if(!sessionStorage.getItem('mp-v5-6-zerozero-reloaded')){
-        sessionStorage.setItem('mp-v5-6-zerozero-reloaded','1');
+      if(!sessionStorage.getItem('mp-v5-7-manual-reloaded')){
+        sessionStorage.setItem('mp-v5-7-manual-reloaded','1');
         location.reload();
       }
     });
