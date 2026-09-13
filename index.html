@@ -90,7 +90,7 @@
   <div class="top">
     <div>
       <h1>Modicus Performance</h1>
-      <div class="muted">Análise · Performance · Futsal Sub-15 · <b>V5.8 MODO JOGO RÁPIDO</b></div>
+      <div class="muted">Análise · Performance · Futsal Sub-15 · <b>V5.9 TREINO VS CAMPEONATO</b></div>
     </div>
     <button id="newGameBtn" class="ghost">Novo jogo</button>
   </div>
@@ -287,6 +287,10 @@
         <div class="stat"><span class="muted">Golos</span><b id="cGoals">0-0</b></div>
         <div class="stat"><span class="muted">Remates</span><b id="cShots">0-0</b></div>
       </div>
+    </div>
+
+    <div class="card">
+      <div class="muted"><b>Separação automática:</b> jogos de Treino/Pré-época ficam guardados no histórico, mas não entram na classificação nem nas estatísticas do Campeonato.</div>
     </div>
 
     <div class="card">
@@ -664,6 +668,17 @@
 </dialog>
 
 
+<dialog id="quickPlayerEventDialog">
+  <form method="dialog">
+    <h3 id="quickPlayerEventTitle">Selecionar jogador</h3>
+    <div class="muted">Toca no jogador em campo. O evento fica logo registado.</div>
+    <div id="quickEventPlayerButtons" class="quick-players" style="margin-top:10px"></div>
+    <div class="row" style="margin-top:14px">
+      <button value="cancel" class="ghost">Cancelar</button>
+    </div>
+  </form>
+</dialog>
+
 <dialog id="quickFinishDialog">
   <form method="dialog">
     <h3 id="quickFinishTitle">Finalização</h3>
@@ -747,6 +762,11 @@
     <input id="dateInput" type="date">
     <label>Local</label>
     <select id="venueInput"><option value="Casa">Casa</option><option value="Fora">Fora</option></select>
+    <label>Tipo de jogo</label>
+    <select id="matchTypeInput">
+      <option value="training">Treino / Pré-época</option>
+      <option value="championship">Campeonato</option>
+    </select>
     <label>Convocados</label>
     <div id="convocationList" class="card" style="margin-top:6px;padding:8px"></div>
     <div class="muted" style="margin-top:6px">Seleciona pelo menos 5 jogadores. Depois escolhes os 5 titulares no separador Plantel.</div>
@@ -864,6 +884,7 @@
       round:g?.round ?? (index+1),
       date:String(g?.date ?? ''),
       venue:String(g?.venue ?? 'Casa'),
+      matchType:String(g?.matchType || (g?.scheduled ? 'championship' : 'training')),
       half,
       elapsed,
       running:Boolean(g?.running) && !Boolean(g?.finished),
@@ -1213,7 +1234,7 @@
 
   function openNewGame(){
     $('#oppInput').value='Adversário';$('#roundInput').value=String(db.games.length+1);
-    $('#dateInput').value=new Date().toISOString().slice(0,10);$('#venueInput').value='Casa';
+    $('#dateInput').value=new Date().toISOString().slice(0,10);$('#venueInput').value='Casa';$('#matchTypeInput').value='training';
     const box=$('#convocationList');box.innerHTML='';
     db.roster.forEach(p=>{
       const d=document.createElement('div');d.className='conv-row';
@@ -1229,7 +1250,7 @@
     const called=$$('.convCheck:checked').map(x=>Number(x.value));
     if(called.length<5){alert('Seleciona pelo menos 5 convocados.');return}
     const g={id:uid(),opponent:$('#oppInput').value.trim()||'Adversário',round:$('#roundInput').value.trim(),
-      date:$('#dateInput').value,venue:$('#venueInput').value,half:1,elapsed:0,running:false,lastTick:null,finished:false,
+      date:$('#dateInput').value,venue:$('#venueInput').value,matchType:$('#matchTypeInput').value||'training',half:1,elapsed:0,running:false,lastTick:null,finished:false,
       called,starters:[],onCourt:[],expelled:[],penalties:[],timeouts:{1:{for:false,against:false},2:{for:false,against:false}},events:[],stints:{},createdAt:Date.now()};
     ensureStints(g);
     db.games.push(g);
@@ -1476,28 +1497,28 @@
   if($('#quickShotAgainst'))$('#quickShotAgainst').onclick=()=>openQuickFinish('shot_against');
 
   if($('#quickFoulFor'))$('#quickFoulFor').onclick=()=>{const g=activeGame();if(!g||g.finished)return;syncRunning(g);log('foul_for')};
-  if($('#quickTurnover'))$('#quickTurnover').onclick=()=>{
-    const g=activeGame();if(!g||g.finished)return;syncRunning(g);
-    pendingEvent='turnover_for';
-    selectedZone=null;
-    $('#eventZoneBlock').classList.add('hidden');
-    $('#eventDetailBlock').classList.add('hidden');
-    $('#eventPlayerBlock').classList.remove('hidden');
-    const sel=$('#eventPlayer');sel.innerHTML='';
-    g.onCourt.forEach(id=>{const o=document.createElement('option');o.value=id;o.textContent=currentName(id);sel.appendChild(o)});
-    $('#eventTitle').textContent='Perda nossa';$('#eventDialog').showModal();
-  };
-  if($('#quickRecovery'))$('#quickRecovery').onclick=()=>{
-    const g=activeGame();if(!g||g.finished)return;syncRunning(g);
-    pendingEvent='recovery_for';
-    selectedZone=null;
-    $('#eventZoneBlock').classList.add('hidden');
-    $('#eventDetailBlock').classList.add('hidden');
-    $('#eventPlayerBlock').classList.remove('hidden');
-    const sel=$('#eventPlayer');sel.innerHTML='';
-    g.onCourt.forEach(id=>{const o=document.createElement('option');o.value=id;o.textContent=currentName(id);sel.appendChild(o)});
-    $('#eventTitle').textContent='Recuperação nossa';$('#eventDialog').showModal();
-  };
+  function openQuickPlayerEvent(type){
+    const g=activeGame();if(!g||g.finished)return;
+    syncRunning(g);
+    if(!(g.onCourt||[]).length){alert('Não há jogadores em campo.');return}
+    const box=$('#quickEventPlayerButtons');box.innerHTML='';
+    $('#quickPlayerEventTitle').textContent=type==='turnover_for'?'↘️ Quem perdeu a bola?':'↗️ Quem recuperou a bola?';
+    g.onCourt.forEach(id=>{
+      const b=document.createElement('button');
+      b.type='button';
+      b.className='quick-player ghost';
+      b.innerHTML=`<b>${esc(currentName(id))}</b><br><small>${esc((player(id)||{}).position||'')}</small>`;
+      b.onclick=()=>{
+        log(type,{playerId:Number(id)});
+        $('#quickPlayerEventDialog').close();
+      };
+      box.appendChild(b);
+    });
+    $('#quickPlayerEventDialog').showModal();
+  }
+
+  if($('#quickTurnover'))$('#quickTurnover').onclick=()=>openQuickPlayerEvent('turnover_for');
+  if($('#quickRecovery'))$('#quickRecovery').onclick=()=>openQuickPlayerEvent('recovery_for');
 
   function openSub(id){
     const g=activeGame();if(!g||g.finished||!g.onCourt.includes(id))return;subOut=id;
@@ -1774,7 +1795,7 @@
     if(!opponent){alert('Indica o adversário.');return}
 
     const g={
-      id:uid(),opponent,round,date,time,venue,
+      id:uid(),opponent,round,date,time,venue,matchType:'championship',
       half:1,elapsed:0,running:false,lastTick:null,finished:false,
       called:[],starters:[],onCourt:[],expelled:[],penalties:[],
       timeouts:{1:{for:false,against:false},2:{for:false,against:false}},
@@ -1864,7 +1885,7 @@
       }
     });
 
-    (db.games||[]).filter(g=>g.finished).forEach(g=>{
+    (db.games||[]).filter(g=>g.finished && g.matchType==='championship').forEach(g=>{
       const gf=goalsFor(g),ga=goalsAgainst(g);
       if(g.venue==='Casa'){
         results.push({home:'Modicus',away:g.opponent,homeGoals:gf,awayGoals:ga});
@@ -1919,16 +1940,17 @@
   function renderChampionship(){
     renderManualStandings();
     renderRoundResultsEditor();
-    const finished=db.games.filter(g=>g.finished);let w=0,d=0,l=0,gf=0,ga=0,sf=0,sa=0;
+    const championshipGames=db.games.filter(g=>g.matchType==='championship');
+    const finished=championshipGames.filter(g=>g.finished);let w=0,d=0,l=0,gf=0,ga=0,sf=0,sa=0;
     finished.forEach(g=>{const a=goalsFor(g),b=goalsAgainst(g);gf+=a;ga+=b;sf+=shotFor(g);sa+=shotAgainst(g);if(a>b)w++;else if(a===b)d++;else l++});
-    $('#cGames').textContent=db.games.length;$('#cRecord').textContent=`${w}-${d}-${l}`;$('#cGoals').textContent=`${gf}-${ga}`;$('#cShots').textContent=`${sf}-${sa}`;
+    $('#cGames').textContent=championshipGames.length;$('#cRecord').textContent=`${w}-${d}-${l}`;$('#cGoals').textContent=`${gf}-${ga}`;$('#cShots').textContent=`${sf}-${sa}`;
     const list=$('#matchList');list.innerHTML='';
     [...db.games].reverse().forEach(g=>{const div=document.createElement('div');div.className='match';
       const hasLocalScore=(g.events||[]).some(e=>['goal_for','goal_against'].includes(e.type));
       const scoreText=(g.finished||hasLocalScore)?`Modicus ${goalsFor(g)}-${goalsAgainst(g)} ${esc(g.opponent)}`:`Modicus vs ${esc(g.opponent)}`;
       const state=g.finished?'Terminado':(g.scheduled&&!(g.events||[]).length?'Agendado':'Em curso');
       div.innerHTML=`<div><b>J${esc(g.round)} · ${scoreText}</b>
-        <div class="muted">${esc(g.date||'Sem data')}${g.time?' · '+esc(g.time):''} · ${esc(g.venue)} · ${state}${Number(db.activeGameId)===Number(g.id)?' · ATIVO':''}</div></div>
+        <div class="muted">${esc(g.date||'Sem data')}${g.time?' · '+esc(g.time):''} · ${esc(g.venue)} · ${g.matchType==='championship'?'CAMPEONATO':'TREINO'} · ${state}${Number(db.activeGameId)===Number(g.id)?' · ATIVO':''}</div></div>
         <div class="row">
           <button class="ghost openMatch" data-id="${g.id}" type="button" onclick="return window.openGameDirect(${g.id})">Abrir</button>
           <button class="red deleteMatch" data-id="${g.id}">Apagar</button>
@@ -2390,10 +2412,10 @@ function switchView(v){
 
   window.addEventListener('beforeunload',()=>{const g=activeGame();if(g){syncRunning(g);save()}});
   if('serviceWorker' in navigator&&location.protocol.startsWith('http')){
-    navigator.serviceWorker.register('./sw.js?build=v5-8-fast',{scope:'./',updateViaCache:'none'}).then(reg=>reg.update()).catch(()=>{});
+    navigator.serviceWorker.register('./sw.js?build=v5-9-types',{scope:'./',updateViaCache:'none'}).then(reg=>reg.update()).catch(()=>{});
     navigator.serviceWorker.addEventListener('controllerchange',()=>{
-      if(!sessionStorage.getItem('mp-v5-8-fast-reloaded')){
-        sessionStorage.setItem('mp-v5-8-fast-reloaded','1');
+      if(!sessionStorage.getItem('mp-v5-9-types-reloaded')){
+        sessionStorage.setItem('mp-v5-9-types-reloaded','1');
         location.reload();
       }
     });
