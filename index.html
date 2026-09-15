@@ -97,7 +97,7 @@
   <div class="top">
     <div>
       <h1>Modicus Performance</h1>
-      <div class="muted">Análise · Performance · Futsal Sub-15 · <b>V6.0 SUBSTITUIÇÃO RÁPIDA</b></div>
+      <div class="muted">Análise · Performance · Futsal Sub-15 · <b>V6.1 FIABILIDADE JOGO</b></div>
     </div>
     <button id="newGameBtn" class="ghost">Novo jogo</button>
   </div>
@@ -157,18 +157,18 @@
           <span class="pill">1–2 toques</span>
         </div>
         <div class="quick-main">
-          <button id="quickGoalFor" class="green">⚽ GOLO NOSSO</button>
-          <button id="quickShotFor" class="blue">🎯 REMATE NOSSO</button>
-          <button id="quickGoalAgainst" class="red">🥅 GOLO SOFRIDO</button>
-          <button id="quickShotAgainst" class="ghost">🛡 REMATE ADV.</button>
+          <button id="quickGoalFor" class="green" type="button" onclick="return window.quickActionDirect('goal_for')">⚽ GOLO NOSSO</button>
+          <button id="quickShotFor" class="blue" type="button" onclick="return window.quickActionDirect('shot_for')">🎯 REMATE NOSSO</button>
+          <button id="quickGoalAgainst" class="red" type="button" onclick="return window.quickActionDirect('goal_against')">🥅 GOLO SOFRIDO</button>
+          <button id="quickShotAgainst" class="ghost" type="button" onclick="return window.quickActionDirect('shot_against')">🛡 REMATE ADV.</button>
         </div>
         <div class="quick-secondary">
-          <button id="quickSub" class="primary">🔄 Substituição</button>
-          <button id="quickFoulFor" class="orange">✋ Falta</button>
-          <button id="quickTurnover" class="red">↘️ Perda</button>
-          <button id="quickRecovery" class="green">↗️ Recuperação</button>
+          <button id="quickSub" class="primary" type="button" onclick="return window.quickSubDirect()">🔄 Substituição</button>
+          <button id="quickFoulFor" class="orange" type="button" onclick="return window.quickFoulDirect()">✋ Falta</button>
+          <button id="quickTurnover" class="red" type="button" onclick="return window.quickPlayerEventDirect('turnover_for')">↘️ Perda</button>
+          <button id="quickRecovery" class="green" type="button" onclick="return window.quickPlayerEventDirect('recovery_for')">↗️ Recuperação</button>
         </div>
-        <div class="quick-hint">Registo rápido: golos/remates, perdas/recuperações e substituições com botões grandes. Um golo conta automaticamente como remate.</div>
+        <div class="quick-hint">Registo rápido: golos/remates, perdas/recuperações e substituições com botões grandes. V6.1 reforça os cliques rápidos e o arranque da 2.ª parte.</div>
       </div>
 
       <div class="card">
@@ -1305,9 +1305,14 @@
       if(!Array.isArray(g.onCourt))g.onCourt=[];
       if(!Array.isArray(g.called))g.called=[];
       if(!Array.isArray(g.starters))g.starters=[];
+      if(!Array.isArray(g.events))g.events=[];
+      if(!g.stints||typeof g.stints!=='object')g.stints={};
+
+      // Repara automaticamente estados inconsistentes sem perder o jogo.
+      g.onCourt=[...new Set(g.onCourt.map(Number).filter(Number.isFinite))].slice(0,5);
 
       if(g.onCourt.length!==5){
-        alert(`Tens ${g.onCourt.length} jogador(es) no 5 inicial. Seleciona exatamente 5 no Plantel.`);
+        alert(`Para iniciar tens de ter 5 jogadores em campo. Neste momento tens ${g.onCourt.length}.`);
         switchView('players');
         renderRosterEditor();
         return false;
@@ -1316,6 +1321,7 @@
       g.onCourt.forEach(id=>{if(!g.called.includes(Number(id)))g.called.push(Number(id))});
       ensureStints(g);
       syncRunning(g);
+
       g.running=!g.running;
       g.lastTick=g.running?Date.now():null;
 
@@ -1326,6 +1332,7 @@
         startTimer();
       }else{
         log('pause');
+        if(timer){clearInterval(timer);timer=null}
       }
 
       persistLocal();
@@ -1341,7 +1348,18 @@
   $('#halfBtn').addEventListener('click',()=>{
     const g=activeGame();if(!g||g.finished)return;syncRunning(g);g.running=false;g.lastTick=null;if(timer){clearInterval(timer);timer=null}
     closeAllOpen(g);
-    if(g.half===1){log('end_half');g.half=2;g.elapsed=0;g.onCourt=[];log('start_half');alert('2.ª parte preparada. Seleciona novamente os 5 jogadores que vão iniciar a parte.');switchView('players')}
+    if(g.half===1){
+      log('end_half');
+      g.half=2;
+      g.elapsed=0;
+      // Mantém os 5 que terminaram a 1.ª parte para que o cronómetro
+      // da 2.ª parte possa arrancar imediatamente. O treinador pode
+      // alterar o cinco antes de iniciar, se quiser.
+      log('start_half');
+      persistLocal();queueCloudPush();
+      alert('2.ª parte preparada. Mantive os 5 que terminaram a 1.ª parte. Se quiseres, altera o cinco antes de iniciar.');
+      switchView('game');
+    }
     else{log('end_game');g.finished=true;g.onCourt=[]}
     save();render();
   });
@@ -1544,6 +1562,23 @@
   if($('#quickTurnover'))$('#quickTurnover').onclick=()=>openQuickPlayerEvent('turnover_for');
   if($('#quickRecovery'))$('#quickRecovery').onclick=()=>openQuickPlayerEvent('recovery_for');
 
+  // V6.1: handlers diretos para evitar perda de eventos após re-render/cache.
+  window.quickActionDirect=function(type){
+    try{ openQuickFinish(type); return false; }
+    catch(err){ alert('Erro na ação rápida: '+(err?.message||err)); return false; }
+  };
+  window.quickPlayerEventDirect=function(type){
+    try{ openQuickPlayerEvent(type); return false; }
+    catch(err){ alert('Erro na ação rápida: '+(err?.message||err)); return false; }
+  };
+  window.quickFoulDirect=function(){
+    try{
+      const g=activeGame(); if(!g||g.finished)return false;
+      syncRunning(g); log('foul_for'); return false;
+    }catch(err){ alert('Erro na ação rápida: '+(err?.message||err)); return false; }
+  };
+
+
 
   function positionTokens(pos){
     return String(pos||'')
@@ -1652,6 +1687,11 @@
   }
 
   if($('#quickSub'))$('#quickSub').onclick=()=>openQuickSub();
+  window.quickSubDirect=function(){
+    try{ openQuickSub(); return false; }
+    catch(err){ alert('Erro na substituição rápida: '+(err?.message||err)); return false; }
+  };
+
 
 
   $('#undoBtn').onclick=()=>{const g=activeGame();if(!g||!g.events.length||g.finished)return;g.events.pop();save();render()};
@@ -2530,10 +2570,10 @@ function switchView(v){
 
   window.addEventListener('beforeunload',()=>{const g=activeGame();if(g){syncRunning(g);save()}});
   if('serviceWorker' in navigator&&location.protocol.startsWith('http')){
-    navigator.serviceWorker.register('./sw.js?build=v6-0-fastsub',{scope:'./',updateViaCache:'none'}).then(reg=>reg.update()).catch(()=>{});
+    navigator.serviceWorker.register('./sw.js?build=v6-1-reliability',{scope:'./',updateViaCache:'none'}).then(reg=>reg.update()).catch(()=>{});
     navigator.serviceWorker.addEventListener('controllerchange',()=>{
-      if(!sessionStorage.getItem('mp-v6-0-fastsub-reloaded')){
-        sessionStorage.setItem('mp-v6-0-fastsub-reloaded','1');
+      if(!sessionStorage.getItem('mp-v6-1-reliability-reloaded')){
+        sessionStorage.setItem('mp-v6-1-reliability-reloaded','1');
         location.reload();
       }
     });
