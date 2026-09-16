@@ -90,6 +90,20 @@
   .quick-sub-section{margin-top:12px}
   .quick-sub-badge{font-size:11px;font-weight:800;opacity:.85}
 
+
+  #actionToast{
+    position:fixed; left:50%; bottom:18px; transform:translateX(-50%) translateY(20px);
+    z-index:9999; background:#0f172a; color:#fff; border:1px solid #334155;
+    border-radius:14px; padding:10px 14px; font-weight:800; opacity:0;
+    pointer-events:none; transition:.18s ease; box-shadow:0 8px 30px rgba(0,0,0,.28);
+    max-width:90vw; text-align:center;
+  }
+  #actionToast.show{opacity:1; transform:translateX(-50%) translateY(0)}
+  #quickUndoBtn{min-height:40px;padding:8px 12px}
+  .penalty-mini{display:none;margin-top:8px;font-size:13px;font-weight:800}
+  .penalty-mini.show{display:inline-flex}
+  .yellow-card-mark{margin-left:6px;font-size:16px;vertical-align:middle}
+
 </style>
 </head>
 <body>
@@ -97,7 +111,7 @@
   <div class="top">
     <div>
       <h1>Modicus Performance</h1>
-      <div class="muted">Análise · Performance · Futsal Sub-15 · <b>V6.3 TRANSIÇÃO DE PARTES</b></div>
+      <div class="muted">Análise · Performance · Futsal Sub-15 · <b>V6.3.1 FEEDBACK VISUAL</b></div>
     </div>
     <button id="newGameBtn" class="ghost">Novo jogo</button>
   </div>
@@ -129,6 +143,7 @@
             <div class="muted" id="gameName">Modicus × Adversário</div>
             <strong><span id="scoreHome">0</span> - <span id="scoreAway">0</span></strong>
             <div class="muted" id="gameStatus"></div>
+            <div id="penaltyMini" class="pill penalty-mini"></div>
           </div>
           <div style="text-align:right">
             <div class="muted" id="halfText">1.ª parte</div>
@@ -154,7 +169,10 @@
       <div class="card quick-panel">
         <div class="section-title">
           <strong>⚡ Modo Jogo Rápido</strong>
-          <span class="pill">1–2 toques</span>
+          <div class="row">
+            <button id="quickUndoBtn" class="ghost" type="button">↶ Desfazer</button>
+            <span class="pill">1–2 toques</span>
+          </div>
         </div>
         <div class="quick-main">
           <button id="quickGoalFor" class="green" type="button" onclick="return window.quickActionDirect('goal_for')">⚽ GOLO NOSSO</button>
@@ -1226,6 +1244,63 @@
   if($('#reentryBtn'))$('#reentryBtn').onclick=openReentry;
 
 
+
+  let toastTimer=null;
+  function showActionFeedback(text){
+    const el=$('#actionToast'); if(!el)return;
+    el.textContent=text;
+    el.classList.add('show');
+    if(toastTimer)clearTimeout(toastTimer);
+    toastTimer=setTimeout(()=>el.classList.remove('show'),1100);
+  }
+
+  function playerHasYellow(g,id){
+    return !!g?.events?.some(e=>e.type==='yellow_for' && Number(e.playerId)===Number(id));
+  }
+
+  function feedbackForEvent(type,extra={}){
+    const who=extra.playerId?` · ${currentName(extra.playerId)}`:'';
+    const z=extra.zone?` · Z${extra.zone}`:'';
+    const map={
+      goal_for:'⚽ Golo nosso registado',
+      goal_against:'🥅 Golo sofrido registado',
+      shot_for:'🎯 Remate nosso registado',
+      shot_against:'🛡 Remate adversário registado',
+      foul_for:'✋ Falta nossa registada',
+      foul_against:'🤚 Falta adversário registada',
+      yellow_for:'🟨 Amarelo registado',
+      yellow_against:'🟨 Amarelo adversário registado',
+      turnover_for:'↘️ Perda registada',
+      recovery_for:'↗️ Recuperação registada',
+      transition_for:'⚡ Transição registada',
+      transition_against:'⚡ Transição adversário registada'
+    };
+    return map[type] ? map[type]+who+z : '';
+  }
+
+  function undoLastLiveAction(){
+    const g=activeGame();
+    if(!g||g.finished||!g.events?.length)return;
+    const e=g.events[g.events.length-1];
+
+    if(e.type==='sub'){
+      const outId=Number(e.outId), inId=Number(e.inId);
+      if(g.onCourt.includes(inId)){
+        g.onCourt=g.onCourt.map(x=>Number(x)===inId?outId:Number(x));
+      }
+      const inArr=g.stints?.[inId]||[];
+      const inLast=inArr[inArr.length-1];
+      if(inLast && Number(inLast.inTotal)===Number(e.total))inArr.pop();
+      const outArr=g.stints?.[outId]||[];
+      const outLast=outArr[outArr.length-1];
+      if(outLast && Number(outLast.outTotal)===Number(e.total))outLast.outTotal=null;
+    }
+
+    g.events.pop();
+    persistLocal(); queueCloudPush(); render();
+    showActionFeedback('↶ Último registo desfeito');
+  }
+
   function log(type,extra={}){
     const g=activeGame();if(!g)return;
     g.events.push({id:uid(),half:g.half,sec:g.elapsed,total:totalSec(g),type,...extra});
@@ -1235,7 +1310,9 @@
     if(type==='goal_for')applyGoalNumericalRule(g,'for');
     if(type==='goal_against')applyGoalNumericalRule(g,'against');
 
+    const fb=feedbackForEvent(type,extra);
     save();render();
+    if(fb)showActionFeedback(fb);
   }
   function startCurrentPlayersIfNeeded(g){
     ensureStints(g);
@@ -1485,6 +1562,7 @@
       queueCloudPush();
       $('#eventDialog').close();
       render();
+      showActionFeedback(`🟥 Expulsão · ${currentName(pid)} · 2:00`);
       alert(currentName(pid)+' foi expulso e saiu dos jogadores em campo. Penalização de 2:00 iniciada.');
       return;
     }
@@ -1521,7 +1599,7 @@
       b.type='button';
       b.className='quick-player ghost';
       b.dataset.pid=id;
-      b.innerHTML=`<b>${esc(currentName(id))}</b><br><small>${esc((player(id)||{}).position||'')}</small>`;
+      b.innerHTML=`<b>${esc(currentName(id))}${playerHasYellow(g,id)?' 🟨':''}</b><br><small>${esc((player(id)||{}).position||'')}</small>`;
       b.onclick=()=>{
         quickPlayerId=Number(id);
         $$('#quickPlayerButtons .quick-player').forEach(x=>x.classList.toggle('selected',Number(x.dataset.pid)===quickPlayerId));
@@ -1619,7 +1697,7 @@
       const b=document.createElement('button');
       b.type='button';
       b.className='quick-player ghost';
-      b.innerHTML=`<b>${esc(currentName(id))}</b><br><small>${esc((player(id)||{}).position||'')}</small>`;
+      b.innerHTML=`<b>${esc(currentName(id))}${playerHasYellow(g,id)?' 🟨':''}</b><br><small>${esc((player(id)||{}).position||'')}</small>`;
       b.onclick=()=>{
         log(type,{playerId:Number(id)});
         $('#quickPlayerEventDialog').close();
@@ -1683,6 +1761,7 @@
 
     g.onCourt=g.onCourt.map(x=>Number(x)===outId?inId:Number(x));
     log('sub',{outId,inId});
+    showActionFeedback(`🔄 ${currentName(outId)} → ${currentName(inId)}`);
     $('#subDialog').close();
   }
 
@@ -1693,7 +1772,7 @@
     b.className='quick-sub-btn ghost';
     const mins=activeGame()?fmt(minutesFor(activeGame(),id)):'';
     const match=outId!=null && positionMatch(outId,id);
-    b.innerHTML=`<b>${esc(currentName(id))}</b><br><small>${esc(p.position||'Sem posição')} · ${mins}${match?' · ★ compatível':''}</small>`;
+    b.innerHTML=`<b>${esc(currentName(id))}${playerHasYellow(activeGame(),id)?' 🟨':''}</b><br><small>${esc(p.position||'Sem posição')} · ${mins}${match?' · ★ compatível':''}</small>`;
     if(mode==='out'){
       b.onclick=()=>selectSubOut(Number(id));
     }else{
@@ -1764,7 +1843,8 @@
 
 
 
-  $('#undoBtn').onclick=()=>{const g=activeGame();if(!g||!g.events.length||g.finished)return;g.events.pop();save();render()};
+  $('#undoBtn').onclick=undoLastLiveAction;
+  if($('#quickUndoBtn'))$('#quickUndoBtn').onclick=undoLastLiveAction;
 
 
   function editableGame(){
@@ -1891,7 +1971,8 @@
       const expelled=(g.expelled||[]).includes(Number(id));
       const b=document.createElement('button');
       b.className='player '+(g.onCourt.includes(id)?'on':'');
-      b.innerHTML=`<b>${esc(currentName(id))}</b><small>${esc(p.position||'')} · ${fmt(minutesFor(g,id))} jogados${expelled?' · 🟥 EXPULSO':''}</small>`;
+      const yellow=playerHasYellow(g,id);
+      b.innerHTML=`<b>${esc(currentName(id))}${yellow?'<span class="yellow-card-mark">🟨</span>':''}</b><small>${esc(p.position||'')} · ${fmt(minutesFor(g,id))} jogados${expelled?' · 🟥 EXPULSO':''}</small>`;
       if(expelled){
         b.disabled=true;
       }else if(g.onCourt.includes(id)){
@@ -1932,6 +2013,14 @@
     if($('#rulesTimeoutAgainst'))$('#rulesTimeoutAgainst').textContent=g.timeouts[h].against?'Usado':'Disponível';
 
     const ourP=activePenalties(g,'for'),oppP=activePenalties(g,'against');
+    const mini=$('#penaltyMini');
+    if(mini){
+      const now=totalSec(g), parts=[];
+      ourP.forEach(p=>parts.push(`🟥 Nós ${fmt(Math.max(0,p.startTotal+p.duration-now))}`));
+      oppP.forEach(p=>parts.push(`🟥 Adv. ${fmt(Math.max(0,p.startTotal+p.duration-now))}`));
+      mini.textContent=parts.join(' · ');
+      mini.classList.toggle('show',parts.length>0);
+    }
     const ps=$('#penaltyStatus');
     if(ps){
       const now=totalSec(g),parts=[];
@@ -2605,7 +2694,8 @@ function switchView(v){
 
   function download(name,content,type){const blob=new Blob([content],{type}),a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000)}
   function excelDownload(name,htmlTables){
-    const doc=`<html><head><meta charset="utf-8"></head><body>${htmlTables}</body></html>`;
+    const doc=`<html><head><meta charset="utf-8"></head><body>${htmlTables}<div id="actionToast"></div>
+</body></html>`;
     download(name,doc,'application/vnd.ms-excel');
   }
   function printHtml(title,body){
@@ -2640,10 +2730,10 @@ function switchView(v){
 
   window.addEventListener('beforeunload',()=>{const g=activeGame();if(g){syncRunning(g);save()}});
   if('serviceWorker' in navigator&&location.protocol.startsWith('http')){
-    navigator.serviceWorker.register('./sw.js?build=v6-3-half-transition',{scope:'./',updateViaCache:'none'}).then(reg=>reg.update()).catch(()=>{});
+    navigator.serviceWorker.register('./sw.js?build=v6-3-1-visual',{scope:'./',updateViaCache:'none'}).then(reg=>reg.update()).catch(()=>{});
     navigator.serviceWorker.addEventListener('controllerchange',()=>{
-      if(!sessionStorage.getItem('mp-v6-3-half-transition-reloaded')){
-        sessionStorage.setItem('mp-v6-3-half-transition-reloaded','1');
+      if(!sessionStorage.getItem('mp-v6-3-1-visual-reloaded')){
+        sessionStorage.setItem('mp-v6-3-1-visual-reloaded','1');
         location.reload();
       }
     });
