@@ -111,7 +111,7 @@
   <div class="top">
     <div>
       <h1>Modicus Performance</h1>
-      <div class="muted">Análise · Performance · Futsal Sub-15 · <b>V6.3.1 FEEDBACK VISUAL</b></div>
+      <div class="muted">Análise · Performance · Futsal Sub-15 · <b>V6.3.3 PENALIZAÇÃO 2 MIN</b></div>
     </div>
     <button id="newGameBtn" class="ghost">Novo jogo</button>
   </div>
@@ -1116,6 +1116,8 @@
     return g.penalties.filter(p=>p.team===team && !p.ended && now < (p.startTotal+p.duration));
   }
 
+  let pendingReentryPrompt=false;
+
   function refreshPenaltyExpiry(g){
     ensureRuleState(g);
     const now=totalSec(g);
@@ -1126,6 +1128,10 @@
         p.endedReason='2 minutos cumpridos';
         p.endedTotal=now;
         changed=true;
+
+        // Se terminou uma penalização nossa, preparar a reposição
+        // de um novo jogador assim que o render terminar.
+        if(p.team==='for') pendingReentryPrompt=true;
       }
     });
     if(changed)persistLocal();
@@ -1168,6 +1174,7 @@
       }
     }else if(scoringTeam==='against' && oppN>ourN){
       if(endOnePenaltyEarly(g,'for','golo sofrido em inferioridade')){
+        pendingReentryPrompt=true;
         alert('Regra de expulsão: já podes repor 1 jogador.');
       }
     }
@@ -1236,6 +1243,7 @@
     g.stints[id].push({inTotal:totalSec(g),outTotal:null});
     g.events.push({id:uid(),half:g.half,sec:g.elapsed,total:totalSec(g),type:'penalty_reentry',playerId:id});
     persistLocal();queueCloudPush();$('#reentryDialog').close();renderGame();
+    showActionFeedback(`➕ ${currentName(id)} entrou · igualdade reposta`);
   });
 
   if($('#timeoutForBtn'))$('#timeoutForBtn').onclick=()=>useTimeout('for');
@@ -2024,12 +2032,25 @@
     const ps=$('#penaltyStatus');
     if(ps){
       const now=totalSec(g),parts=[];
-      ourP.forEach(p=>parts.push(`🟥 Nós: ${fmt(Math.max(0,p.startTotal+p.duration-now))} de inferioridade`));
-      oppP.forEach(p=>parts.push(`🟥 Adversário: ${fmt(Math.max(0,p.startTotal+p.duration-now))} de inferioridade`));
-      ps.textContent=parts.length?parts.join(' · '):'Sem inferioridade numérica.';
+      ourP.forEach(p=>parts.push(`🟥 Nós: ${fmt(Math.max(0,p.startTotal+p.duration-now))} penalização`));
+      oppP.forEach(p=>parts.push(`🟥 Adversário: ${fmt(Math.max(0,p.startTotal+p.duration-now))} penalização`));
+      ps.textContent=parts.length?parts.join(' · '):'Sem penalizações ativas.';
     }
     const re=$('#reentryBtn');
     if(re)re.classList.toggle('hidden',!canOurTeamReenter(g));
+
+    // Quando a nossa penalização termina, por 2:00 ou por golo sofrido
+    // em inferioridade, abrir automaticamente a escolha do novo jogador.
+    if(pendingReentryPrompt && canOurTeamReenter(g)){
+      pendingReentryPrompt=false;
+      setTimeout(()=>{
+        const dlg=$('#reentryDialog');
+        if(dlg && !dlg.open){
+          showActionFeedback('➕ Penalização terminou · repor jogador');
+          openReentry();
+        }
+      },0);
+    }
 
     renderLivePlayers();
 
@@ -2730,10 +2751,10 @@ function switchView(v){
 
   window.addEventListener('beforeunload',()=>{const g=activeGame();if(g){syncRunning(g);save()}});
   if('serviceWorker' in navigator&&location.protocol.startsWith('http')){
-    navigator.serviceWorker.register('./sw.js?build=v6-3-1-visual',{scope:'./',updateViaCache:'none'}).then(reg=>reg.update()).catch(()=>{});
+    navigator.serviceWorker.register('./sw.js?build=v6-3-3-penalty',{scope:'./',updateViaCache:'none'}).then(reg=>reg.update()).catch(()=>{});
     navigator.serviceWorker.addEventListener('controllerchange',()=>{
-      if(!sessionStorage.getItem('mp-v6-3-1-visual-reloaded')){
-        sessionStorage.setItem('mp-v6-3-1-visual-reloaded','1');
+      if(!sessionStorage.getItem('mp-v6-3-3-penalty-reloaded')){
+        sessionStorage.setItem('mp-v6-3-3-penalty-reloaded','1');
         location.reload();
       }
     });
