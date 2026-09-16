@@ -97,7 +97,7 @@
   <div class="top">
     <div>
       <h1>Modicus Performance</h1>
-      <div class="muted">Análise · Performance · Futsal Sub-15 · <b>V6.2 FIM DE PARTE MANUAL</b></div>
+      <div class="muted">Análise · Performance · Futsal Sub-15 · <b>V6.3 TRANSIÇÃO DE PARTES</b></div>
     </div>
     <button id="newGameBtn" class="ghost">Novo jogo</button>
   </div>
@@ -1346,50 +1346,91 @@
   };
 
   $('#halfBtn').addEventListener('click',()=>{
-    const g=editableGame();
-    if(!g||g.finished)return;
+    try{
+      const g=editableGame();
+      if(!g||g.finished)return;
 
-    syncRunning(g);
+      syncRunning(g);
 
-    if(g.half===1){
-      const current=Number(g.elapsed)||0;
-      if(current<1800){
-        const shown=fmt(current);
-        if(!confirm(`O cronómetro está em ${shown}. Queres terminar a 1.ª parte agora?`))return;
-      }
+      if(g.half===1){
+        const current=Number(g.elapsed)||0;
 
-      if(g.running){
+        if(current<1800){
+          const shown=fmt(current);
+          if(!confirm(`O cronómetro está em ${shown}. Queres terminar a 1.ª parte agora?`))return;
+        }
+
+        if(g.running){
+          g.running=false;
+          g.lastTick=null;
+          if(timer){clearInterval(timer);timer=null}
+        }
+
+        // Fechar stints no instante do intervalo e reabrir na 2.ª parte
+        // para os mesmos 5 jogadores, sem perder os minutos.
+        closeAllOpen(g);
+
+        const endTotal=totalSec(g);
+        g.events.push({
+          id:uid(),
+          half:1,
+          sec:current,
+          total:endTotal,
+          type:'end_half'
+        });
+
+        g.half=2;
+        g.elapsed=0;
         g.running=false;
         g.lastTick=null;
-        if(timer){clearInterval(timer);timer=null}
+
+        // Os mesmos 5 continuam selecionados, mas os novos stints
+        // começam apenas quando a 2.ª parte for iniciada.
+        g.events.push({
+          id:uid(),
+          half:2,
+          sec:0,
+          total:1800,
+          type:'start_half'
+        });
+
+        persistLocal();
+        queueCloudPush();
+        renderGame();
+        renderRosterEditor();
+
+        alert('2.ª parte preparada em 00:00. Mantive os 5 jogadores em campo. Carrega em Iniciar para começar.');
+        return;
       }
 
-      log('end_half');
-      g.half=2;
-      g.elapsed=0;
-      log('start_half');
+      if(g.half===2){
+        if(!confirm('Terminar o jogo agora?'))return;
 
-      persistLocal();
-      queueCloudPush();
+        if(g.running){
+          g.running=false;
+          g.lastTick=null;
+          if(timer){clearInterval(timer);timer=null}
+        }
 
-      alert('2.ª parte preparada. Mantive os 5 que terminaram a 1.ª parte. Se quiseres, altera o cinco antes de iniciar.');
-      switchView('game');
-      renderGame();
-      return;
-    }
+        closeAllOpen(g);
 
-    if(g.half===2){
-      if(g.running){
-        g.running=false;
-        g.lastTick=null;
-        if(timer){clearInterval(timer);timer=null}
+        g.events.push({
+          id:uid(),
+          half:2,
+          sec:Number(g.elapsed)||0,
+          total:totalSec(g),
+          type:'end_game'
+        });
+
+        g.finished=true;
+        g.onCourt=[];
+
+        persistLocal();
+        queueCloudPush();
+        render();
       }
-      log('end_game');
-      g.finished=true;
-      g.onCourt=[];
-      persistLocal();
-      queueCloudPush();
-      renderAll();
+    }catch(err){
+      alert('Erro ao mudar de parte: '+(err?.message||err));
     }
   });
 
@@ -2599,10 +2640,10 @@ function switchView(v){
 
   window.addEventListener('beforeunload',()=>{const g=activeGame();if(g){syncRunning(g);save()}});
   if('serviceWorker' in navigator&&location.protocol.startsWith('http')){
-    navigator.serviceWorker.register('./sw.js?build=v6-2-manual-half',{scope:'./',updateViaCache:'none'}).then(reg=>reg.update()).catch(()=>{});
+    navigator.serviceWorker.register('./sw.js?build=v6-3-half-transition',{scope:'./',updateViaCache:'none'}).then(reg=>reg.update()).catch(()=>{});
     navigator.serviceWorker.addEventListener('controllerchange',()=>{
-      if(!sessionStorage.getItem('mp-v6-2-manual-half-reloaded')){
-        sessionStorage.setItem('mp-v6-2-manual-half-reloaded','1');
+      if(!sessionStorage.getItem('mp-v6-3-half-transition-reloaded')){
+        sessionStorage.setItem('mp-v6-3-half-transition-reloaded','1');
         location.reload();
       }
     });
